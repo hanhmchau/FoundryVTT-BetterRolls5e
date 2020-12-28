@@ -15,6 +15,11 @@ function debug() {
 	}
 }
 
+function annotateFormula(hints) {
+	const formula = hints.map(hint => `${hint.mod.toString()}${hint.note.length > 0 ? `[${hint.note}]` : ""}`).join(" + ");
+	return formula.replaceAll(/(?<=\S)\+(?=\S)/g, " + ");
+}
+
 // General class for macro support, actor rolls, and most static rolls.
 export class CustomRoll {
 	/**
@@ -29,7 +34,7 @@ export class CustomRoll {
 	* @param {Boolean} triggersCrit		Whether this field marks the entire roll as critical
 	* @param {String} rollType			The type of roll, such as "attack" or "damage"
 	*/
-	static async rollMultiple(numRolls = 1, dice = "1d20", parts = [], data = {}, title = "", critThreshold, rollState, triggersCrit = false, rollType = "") {
+	static async rollMultiple(numRolls = 1, dice = "1d20", parts = [], data = {}, title = "", critThreshold, rollState, triggersCrit = false, rollType = "", hints=[]) {
 		const formula = [dice].concat(parts);
 		const rolls = [];
 		const tooltips = [];
@@ -39,7 +44,9 @@ export class CustomRoll {
 			rolls.push(await new Roll(formula.join("+"), data).roll());
 			tooltips.push(await rolls[i].getTooltip());
 		}
-		
+
+		const annotatedFormula = annotateFormula(hints);
+
 		// Step 2 - Setup chatData
 		const chatData = {
 			title,
@@ -47,7 +54,8 @@ export class CustomRoll {
 			rolls,
 			rollState,
 			rollType,
-			formula: rolls[0].formula
+			formula: rolls[0].formula,
+			annotatedFormula
 		};
 		
 		function tagIgnored() {
@@ -178,17 +186,65 @@ export class CustomRoll {
 		let parts = ["@mod"],
 			data = {mod: skill.mod + skill.prof},
 			flavor = null;
-		
+
+		const hints = [{
+			mod: skill.mod,
+			note: skill.ability
+		}];
+
+		let note = "";
+		switch (skill.value) {
+			case 0:
+				if (actor.getFlag("dnd5e", "jackOfAllTrades")) {
+					note = "jack of all trades";
+				}
+				break;
+			case 0.5:
+				note = "half prof";
+				break;
+			case 1:
+				note = "prof";
+				break;
+			case 2:
+				note = "expertise";
+				break;
+		}
+		if (note !== "") {
+			hints.push({
+				mod: skill.prof,
+				note
+			});
+		}
+	
 		const skillBonus = getProperty(actor, "data.data.bonuses.abilities.skill");
 		if (skillBonus) {
 			parts.push("@skillBonus");
+			hints.push({
+				mod: skillBonus,
+				note: "bonus"
+			});
 			data["skillBonus"] = skillBonus;
 		}
 		
 		// Halfling Luck + Reliable Talent check
-		let d20String = ActorUtils.isHalfling(actor) ? "1d20r<2" : "1d20";
+		let d20String = "1d20";
+		hints.unshift({
+			mod: d20String,
+			note: ""
+		});
+		if (ActorUtils.isHalfling(actor)) {
+			d20String = "1d20r<2";
+			hints[0] = {
+				mod: "1d20 reroll on 1",
+				note: "halfling luck"
+			};
+		}
 		if (ActorUtils.hasReliableTalent(actor) && skill.value >= 1) {
 			d20String = `{${d20String},10}kh`;
+			hints[0] = {
+				mod: "1d20 min 10",
+				note: "reliable talent"
+			};
 		}
 		
 		const rollState = params ? CustomRoll.getRollState(params) : null;
@@ -198,7 +254,7 @@ export class CustomRoll {
 			numRolls = 2;
 		}
 		
-		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState, params.triggersCrit, "skill");
+		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState, params.triggersCrit, "skill", hints);
 	}
 
 	static async rollCheck(actor, ability, params) {
@@ -264,6 +320,11 @@ export class CustomRoll {
 			flavor = null;
 
 			data.mod = data.abilities[abl].mod;
+
+		const hints = [{
+			mod: data.mod,
+			note: abl
+		}];
 		
 		const checkBonus = getProperty(actor, "data.data.bonuses.abilityCheck");
 		const secondCheckBonus = getProperty(actor, "data.data.bonuses.abilities.check");
@@ -271,17 +332,40 @@ export class CustomRoll {
 		if (checkBonus && parseInt(checkBonus) !== 0) {
 			parts.push("@checkBonus");
 			data["checkBonus"] = checkBonus;
+			hints.push({
+				mod: checkBonus,
+				note: "bonus"
+			});
 		} else if (secondCheckBonus && parseInt(secondCheckBonus) !== 0) {
 			parts.push("@secondCheckBonus");
 			data["secondCheckBonus"] = secondCheckBonus;
+			hints.push({
+				mod: secondCheckBonus,
+				note: "bonus"
+			});
 		}
 
 		if (actor.getFlag("dnd5e", "jackOfAllTrades")) {
 			parts.push(`floor(@attributes.prof / 2)`);
+			hints.push({
+				mod: Math.floor(actor.data.data.attributes.prof / 2),
+				note: "jack of all trades"
+			});
 		}
 
 		// Halfling Luck check
-		const d20String = ActorUtils.isHalfling(actor) ? "1d20r<2" : "1d20";
+		let d20String = "1d20";
+		hints.unshift({
+			mod: "1d20",
+			note: ""
+		});
+		if (ActorUtils.isHalfling(actor)) {
+			d20String = "1d20r<2";
+			hints[0] = {
+				mod: "1d20 reroll on 1",
+				note: "halfling luck"
+			};
+		}
 		
 		let rollState = params ? CustomRoll.getRollState(params) : null;
 		
@@ -290,7 +374,7 @@ export class CustomRoll {
 			numRolls = 2;
 		}
 		
-		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState);
+		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState, params.triggersCrit, undefined, hints);
 	}
 	
 	static async rollAbilitySave(actor, abl, params = {}) {
@@ -299,6 +383,7 @@ export class CustomRoll {
 		let parts = [];
 		let data = {mod: []};
 		let flavor = null;
+		const hints = [];
 		
 		// Support modifiers and global save bonus
 		const saveBonus = getProperty(actorData, "bonuses.abilities.save") || null;
@@ -306,6 +391,16 @@ export class CustomRoll {
 		let ablParts = {};
 		ablParts.mod = ablData.mod !== 0 ? ablData.mod.toString() : null;
 		ablParts.prof = ((ablData.proficient || 0) * actorData.attributes.prof).toString();
+		if (ablData.proficient) {
+			hints.push({
+				mod: actorData.attributes.prof,
+				note: "prof"
+			});
+		}
+		hints.push({
+			mod: ablData.mod ?? 0,
+			note: abl
+		});
 		let mods = [ablParts.mod, ablParts.prof, saveBonus];
 		for (let i=0; i<mods.length; i++) {
 			if (mods[i] && mods[i] !== "0") {
@@ -313,9 +408,26 @@ export class CustomRoll {
 			}
 		}
 		data.mod = data.mod.join("+");
+		if (saveBonus) {
+			hints.push({
+				mod: saveBonus,
+				note: "bonus"	
+			});
+		}
 		
 		// Halfling Luck check
-		const d20String = ActorUtils.isHalfling(actor) ? "1d20r<2" : "1d20";
+		let d20String = "1d20";
+		hints.unshift({
+			mod: "1d20",
+			note: ""
+		});
+		if (ActorUtils.isHalfling(actor)) {
+			d20String = "1d20r<2";
+			hints[0] = {
+				mod: "1d20 reroll on 1",
+				note: "halfling luck"
+			};
+		}
 		
 		if (data.mod !== "") {
 			parts.push("@mod");
@@ -328,7 +440,7 @@ export class CustomRoll {
 			numRolls = 2;
 		}
 		
-		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState);
+		return await CustomRoll.rollMultiple(numRolls, d20String, parts, data, flavor, params.critThreshold || null, rollState, params.triggersCrit, undefined, hints);
 	}
 	
 	static newItemRoll(item, params, fields) {
@@ -873,6 +985,7 @@ export class CustomItemRoll {
 			title = (this.config.rollTitlePlacement !== "0") ? i18n("br5e.chat.attack") : null,
 			parts = [],
 			rollData = duplicate(actorData);
+		const hints = [];
 
 		
 		this.addToRollData(rollData);
@@ -915,13 +1028,21 @@ export class CustomItemRoll {
 		if (abl.length) {
 			parts.push(`@abl`);
 			rollData.abl = actorData.abilities[abl]?.mod;
+			hints.push({
+				mod: rollData.abl ?? 0,
+				note: abl
+			});
 			//console.log("Adding Ability mod", abl);
 		}
 		
-		// Add proficiency, expertise, or Jack of all Trades
+		// Add proficiency
 		if (itm.data.type == "spell" || itm.data.type == "feat" || itemData.proficient ) {
 			parts.push(`@prof`);
 			rollData.prof = Math.floor(actorData.attributes.prof);
+			hints.push({
+				mod: rollData.prof,
+				note: "prof"
+			});
 			//console.log("Adding Proficiency mod!");
 		}
 		
@@ -929,6 +1050,10 @@ export class CustomItemRoll {
 		if (itemData.attackBonus) {
 			parts.push(`@bonus`);
 			rollData.bonus = itemData.attackBonus;
+			hints.push({
+				mod: parseInt(rollData.bonus),
+				note: "bonus"
+			});
 			//console.log("Adding Bonus mod!", itemData);
 		}
 
@@ -951,8 +1076,12 @@ export class CustomItemRoll {
 			if (actorData?.bonuses[actionType]?.attack) {
 				parts.push("@" + actionType);
 				rollData[actionType] = actorData.bonuses[actionType].attack;
+				hints.push({
+					mod: parseInt(rollData[actionType]),
+					note: `${actionType} bonus`
+				});
 			}
-		}	
+		}
 		
 		// Establish number of rolls using advantage/disadvantage and elven accuracy
 		const rollState = CustomRoll.getRollState({adv:args.adv, disadv:args.disadv});
@@ -961,8 +1090,17 @@ export class CustomItemRoll {
 			numRolls = 3;
 		}
 		
-		const d20String = ActorUtils.isHalfling(itm.actor) ? "1d20r<2" : "1d20";
-		const rolls = await CustomRoll.rollMultiple(numRolls, d20String, parts, rollData, title, critThreshold, rollState, args.triggersCrit);
+		let d20String = "1d20";
+		let note = "";
+		if (ActorUtils.isHalfling(itm.actor)) {
+			d20String = "1d20r<2";
+			note = "halfling luck";
+		}
+		hints.unshift({
+			mod: d20String,
+			note,
+		});
+		const rolls = await CustomRoll.rollMultiple(numRolls, d20String, parts, rollData, title, critThreshold, rollState, args.triggersCrit, undefined, hints);
 		const output = { ...rolls, type: "attack" };
 		if (output.isCrit) {
 			this.isCrit = true;
@@ -973,7 +1111,7 @@ export class CustomItemRoll {
 		return output;
 	}
 	
-	async damageTemplate ({baseRoll, critRoll, labels, type}) {
+	async damageTemplate ({baseRoll, critRoll, labels, type, annotatedFormula}) {
 		let baseTooltip = await baseRoll.getTooltip(),
 			templateTooltip;
 		
@@ -996,7 +1134,8 @@ export class CustomItemRoll {
 			crittext: this.config.critString,
 			damageType:type,
 			maxRoll: await new Roll(baseRoll.formula).evaluate({maximize:true}).total,
-			maxCrit: critRoll ? await new Roll(critRoll.formula).evaluate({maximize:true}).total : null
+			maxCrit: critRoll ? await new Roll(critRoll.formula).evaluate({maximize:true}).total : null,
+			annotatedFormula
 		};
 		
 		let html = {
@@ -1028,6 +1167,8 @@ export class CustomItemRoll {
 		rollData.item = duplicate(itemData);
 		rollData.item.level = slotLevel;
 		this.addToRollData(rollData);
+
+		const hints = [];
 
 		// Makes the custom roll flagged as having a damage roll.
 		this.hasDamage = true;
@@ -1070,6 +1211,11 @@ export class CustomItemRoll {
 		
 		// Users may add "+ @mod" to their rolls to manually add the ability modifier to their rolls.
 		rollData.mod = (abl !== "") ? rollData.abilities[abl]?.mod : 0;
+
+		hints.push({
+			mod: damageFormula.replaceAll("@mod", `${rollData.mod}[${abl}]`),
+			note: ""
+		});
 		
 		// Prepare roll label
 		let titlePlacement = this.config.damageTitlePlacement.toString(),
@@ -1127,6 +1273,10 @@ export class CustomItemRoll {
 			let actionType = `${itemData.actionType}`;
 			if (rollData.bonuses[actionType].damage) {
 				bonusAdd = "+" + rollData.bonuses[actionType].damage;
+				hints.push({
+					mod: rollData.bonuses[actionType].damage,
+					note: actionType
+				});
 			}
 		}
 		
@@ -1143,10 +1293,11 @@ export class CustomItemRoll {
 		const critBehavior = this.params.critBehavior ? this.params.critBehavior : this.config.critBehavior;
 
 		if ((forceCrit == true || (this.isCrit && forceCrit !== "never")) && critBehavior !== "0") {
-			critRoll = await this.critRoll(rollFormula, rollData, baseRoll);
+			critRoll = await this.critRoll(rollFormula, rollData, baseRoll, damageIndex, hints);
 		}
 		
-		let damageRoll = await this.damageTemplate({baseRoll: baseRoll, critRoll: critRoll, labels: labels, type:damageType});
+		const annotatedFormula = annotateFormula(hints);
+		let damageRoll = await this.damageTemplate({baseRoll: baseRoll, critRoll: critRoll, labels: labels, type:damageType, annotatedFormula});
 
 		return damageRoll;
 	}
@@ -1156,7 +1307,7 @@ export class CustomItemRoll {
 	* This critical damage should not overwrite the base damage - it should be seen as "additional damage dealt on a crit", as crit damage may not be used even if it was rolled.
 	*/
 
-	async critRoll(rollFormula, rollData, baseRoll) {
+	async critRoll(rollFormula, rollData, baseRoll, damageIndex, hints) {
 		let itm = this.item;
 		let critBehavior = this.params.critBehavior ? this.params.critBehavior : this.config.critBehavior;
 		let critFormula = rollFormula.replace(/[+-]+\s*(?:@[a-zA-Z0-9.]+|[0-9]+(?![Dd]))/g,"").concat();
@@ -1168,12 +1319,38 @@ export class CustomItemRoll {
 		// If the crit formula has no dice, return null
 		if (critRoll.terms.length === 1 && typeof critRoll.terms[0] === "number") { return null; }
 
+		hints.push({
+			mod: critFormula.trim(),
+			note: "critical"
+		});
+
 		if (itm.data.type === "weapon") {
 			try { savage = itm.actor.getFlag("dnd5e", "savageAttacks"); }
 			catch(error) { savage = itm.actor.getFlag("dnd5eJP", "savageAttacks"); }
 		}
 		let add = (itm.actor && savage) ? 1 : 0;
+		if (add) {
+			hints.push({
+				mod: critFormula,
+				note: "savage"
+			});
+		}
 		critRoll.alter(1, add);
+
+
+		/* BRUTAL CRITICAL */
+		if (itm.data.data.actionType === "mwak" && damageIndex === 0) {
+			const extraCritDice = itm.actor.getFlag("dnd5e", "meleeCriticalDamageDice") ?? 0;
+			critRoll.dice[0].alter(1, extraCritDice);
+
+			const extraCritRoll = await new Roll(`${extraCritDice}d${critRoll.dice[0].faces}`);
+
+			hints.push({
+				mod: extraCritRoll.formula,
+				note: "brutal critical"
+			});
+		}
+
 		critRoll.roll();
 		
 		// If critBehavior = 2, maximize base dice
@@ -1319,6 +1496,7 @@ export class CustomItemRoll {
 			rollData = duplicate(actorData);
 		rollData.item = itemData;
 		this.addToRollData(rollData);
+		const hints = [];
 		
 		// Add ability modifier bonus
 		if ( itemData.ability ) {
@@ -1328,19 +1506,51 @@ export class CustomItemRoll {
 				parts.push("@mod");
 				rollData.mod = mod;
 			}
+			hints.push({
+				mod,
+				note: abl
+			});
 		}
 		
 		// Add proficiency, expertise, or Jack of all Trades
-		if ( itemData.proficient ) {
-			parts.push("@prof");
-			rollData.prof = Math.floor(itemData.proficient * actorData.attributes.prof);
-			//console.log("Adding Proficiency mod!");
+		let note = "";
+		let profLevel = itemData.proficient;
+		switch (itemData.proficient) {
+			case 0:
+				if (itm.actor.getFlag("dnd5e", "jackOfAllTrades")) {
+					note = "jack of all trades";
+					profLevel = 0.5;
+				}
+				break;
+			case 0.5:
+				note = "half prof";
+				break;
+			case 1:
+				note = "prof";
+				break;
+			case 2:
+				note = "expertise";
+				break;	
 		}
 		
+		if (profLevel > 0) {
+			parts.push("@prof");
+			rollData.prof = Math.floor(profLevel * actorData.attributes.prof);
+			hints.push({
+				mod: rollData.prof,
+				note
+			});
+		}
+		//console.log("Adding Proficiency mod!");
+	
 		// Add item's bonus
 		if ( itemData.bonus ) {
 			parts.push("@bonus");
 			rollData.bonus = itemData.bonus.value;
+			hints.push({
+				mod: rollData.bonus,
+				note: "bonus"
+			});
 			//console.log("Adding Bonus mod!");
 		}
 		
@@ -1352,9 +1562,28 @@ export class CustomItemRoll {
 		const rollState = args.rollState ?? CustomRoll.getRollState({adv:args.adv, disadv:args.disadv});
 		let numRolls = rollState ? 2 : this.config.d20Mode;
 
-		// Halfling Luck check
-		const d20String = ActorUtils.isHalfling(itm.actor) ? "1d20r<2" : "1d20";
-		const output = await CustomRoll.rollMultiple(numRolls, d20String, parts, rollData, title, args.critThreshold, args.rollState, args.triggersCrit);
+		// Halfling Luck + Reliable Talent check
+		let d20String = "1d20";
+		hints.unshift({
+			mod: d20String,
+			note: ""
+		});
+		if (ActorUtils.isHalfling(itm.actor)) {
+			d20String = "1d20r<2";
+			hints[0] = {
+				mod: "1d20 reroll on 1",
+				note: "halfling luck"
+			};
+		}
+		if (ActorUtils.hasReliableTalent(itm.actor) && profLevel >= 1) {
+			d20String = `{${d20String},10}kh`;
+			hints[0] = {
+				mod: "1d20 min 10",
+				note: "reliable talent"
+			};
+		}
+		
+		const output = await CustomRoll.rollMultiple(numRolls, d20String, parts, rollData, title, args.critThreshold, args.rollState, args.triggersCrit, undefined, hints);
 		if (output.isCrit) {
 			this.isCrit = true;
 		}

@@ -11,8 +11,15 @@
 		</div>
 		<div class="dice-row red-totals">
 			{{#each rolls}}
-			<h4 class="dice-total dice-row-item red-base-die{{#if this.ignored}} ignored{{/if}}">{{this.total}}</h4>
+			<h4 class="dice-total dice-row-item red-base-die{{#if this.ignored}} ignored{{/if}}">
+				<span class="dice-value">
+					{{this.total}}
+				</span>
+			</h4>
 			{{/each}}
 		</div>
-    </div>
+	</div>
+	<div class="dice-annotation">
+		{{annotatedFormula}}
+	</div>
 </div>

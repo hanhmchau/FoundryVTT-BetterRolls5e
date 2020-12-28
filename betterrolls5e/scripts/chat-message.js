@@ -30,6 +30,7 @@ class BetterRollsChatCard {
 		this.html = html;
 		this._setupDamageButtons();
 		this._setupSaveButtons();
+		this._setupDiceAnnotations();
 	}
 
 	/**
@@ -47,13 +48,40 @@ class BetterRollsChatCard {
 		return new BetterRollsChatCard(message.id, chatCard);
 	}
 
+	async _setupDiceAnnotations() {
+		if (!BRSettings.showDiceAnnotation) {
+			return;
+		}
+		const { html } = this;
+		html.find('.dice-value').hover(evIn => {
+			html.find('.dice-annotation').show();
+		}, evOut => {
+			html.find('.dice-annotation').hide();
+		});
+	}
+
 	async _setupDamageButtons() {
 		if (!BRSettings.chatDamageButtonsEnabled) {
 			return;
 		}
 
 		const { html } = this;
-		const template = await renderTemplate("modules/betterrolls5e/templates/red-damage-overlay.html");
+		const template = `
+			<span class="dmgBtn-container-br temporary">
+				<button data-modifier="1">
+					<i class="fas fa-user-minus" title="${i18n("br5e.chat.damageButtons.fullDamage.hint")}"></i>
+				</button>
+				<button data-modifier="0.5">
+					<i class="fas fa-user-shield" title="${i18n("br5e.chat.damageButtons.halfDamage.hint")}"></i>
+				</button>
+				<button data-modifier="2">
+					<i class="fas fa-user-injured" title="${i18n("br5e.chat.damageButtons.doubleDamage.hint")}"></i>
+				</button>
+				<button data-modifier="-1">
+					<i class="fas fa-user-plus" title="${i18n("br5e.chat.damageButtons.healing.hint")}"></i>
+				</button>
+			</span>
+		`;
 		const dmgElements = html.find('.red-base-die').parents('.dice-total').toArray(); 
 		const customElements = html.find('[data-type=custom] .red-base-die').toArray();
 		

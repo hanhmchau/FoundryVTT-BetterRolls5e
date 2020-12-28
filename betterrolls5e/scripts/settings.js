@@ -206,6 +206,15 @@ class Settings {
 				"2": i18n("br5e.hideDC.choices.2"),
 			}
 		});
+
+		game.settings.register("betterrolls5e", "showDiceAnnotation", {
+			name: i18n("br5e.showDiceAnnotation.name"),
+			hint: i18n("br5e.showDiceAnnotation.hint"),
+			scope: "world",
+			config: true,
+			default: true,
+			type: Boolean
+		});
 	}
 
 	get playRollSounds() {
@@ -262,6 +271,10 @@ class Settings {
 
 	get chatDamageButtonsEnabled() {
 		return getBRSetting("chatDamageButtonsEnabled");
+	}
+
+	get showDiceAnnotation() {
+		return getBRSetting("showDiceAnnotation");
 	}
 
 	/**
