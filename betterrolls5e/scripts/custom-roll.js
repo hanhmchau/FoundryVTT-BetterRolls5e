@@ -1266,7 +1266,7 @@ export class CustomItemRoll {
 			labels[p] = labels[p].join(" - ");
 		};
 
-		if (damageIndex === 0) { damageFormula = this.scaleDamage(damageIndex, isVersatile, rollData) || damageFormula; }
+		if (damageIndex === 0) { damageFormula = this.scaleDamage(damageIndex, isVersatile, rollData, hints) || damageFormula; }
 		
 		let bonusAdd = "";
 		if (damageIndex == 0 && rollData.bonuses && isAttack(itm)) {
@@ -1370,7 +1370,7 @@ export class CustomItemRoll {
 		return critRoll;
 	}
 	
-	scaleDamage(damageIndex, versatile, rollData) {
+	scaleDamage(damageIndex, versatile, rollData, hints) {
 		let item = this.item;
 		let itemData = item.data.data;
 		let actorData = item.actor.data.data;
@@ -1386,6 +1386,11 @@ export class CustomItemRoll {
 			if ( add === 0 ) {}
 			else {
 				formula = item._scaleDamage([formula], scale || formula, add, rollData);
+				const extraDamage = new Roll(scale || formula, rollData).alter(add);
+				hints.push({
+					mod: extraDamage.formula,
+					note: 'higher level'
+				});
 				if (versatile) { formula = item._scaleDamage([itemData.damage.versatile], itemData.damage.versatile, add, rollData); }
 			}
 			return formula;
@@ -1400,6 +1405,11 @@ export class CustomItemRoll {
 			const add = Math.floor(spellLevel - level);
 			if (add > 0) {
 				formula = item._scaleDamage([formula], scale || formula, add, rollData);
+				const extraDamage = new Roll(scale || formula, rollData).alter(add);
+				hints.push({
+					mod: extraDamage.formula,
+					note: 'higher level'
+				});
 				if (versatile) { formula = item._scaleDamage([itemData.damage.versatile], itemData.damage.versatile, add, rollData); }
 			}
 			

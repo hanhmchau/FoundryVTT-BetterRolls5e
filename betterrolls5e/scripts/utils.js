@@ -12,8 +12,11 @@ if (!String.prototype.replaceAll) {
 
 		// If a regex pattern
 		if (Object.prototype.toString.call(str).toLowerCase() === '[object regexp]') {
-			const newRegex = new RegExp(str.source, str.flags + "g");
-			return this.replace(newRegex, newStr);
+			if (str.flags.includes("g")) {
+				return this.replace(str, newStr);
+			}
+			const globalRegex = new RegExp(str.source, str.flags + "g");
+			return this.replace(globalRegex, newStr);
 		}
 
 		// If a string
